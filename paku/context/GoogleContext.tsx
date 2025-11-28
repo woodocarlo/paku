@@ -4,10 +4,11 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 const DISCOVERY_DOCS = [
   'https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest',
   'https://www.googleapis.com/discovery/v1/apis/drive/v3/rest',
-  'https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest'
+  'https://www.googleapis.com/discovery/v1/apis/sheets/v4/rest',
+  'https://www.googleapis.com/discovery/v1/apis/oauth2/v2/rest'
 ];
-const SCOPES = 'https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets';
-
+// Removed ".readonly" from the first URL to allow creating events
+const SCOPES = 'https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email';
 // 1. Define the shape of your state
 interface GoogleConfig {
     apiKey: string;
@@ -76,13 +77,23 @@ export const GoogleProvider = ({ children }: { children: React.ReactNode }) => {
             const tokenClient = window.google.accounts.oauth2.initTokenClient({
                 client_id: config.clientId,
                 scope: SCOPES,
-                callback: (tokenResponse: any) => {
+                callback: async (tokenResponse: any) => {
                     if (tokenResponse && tokenResponse.access_token) {
-                        setConfig(prev => ({ 
-                            ...prev, 
-                            accessToken: tokenResponse.access_token,
-                            userProfile: { name: "Google User", email: "Connected" } 
-                        }));
+                        try {
+                            const userInfo = await window.gapi.client.oauth2.userinfo.get();
+                            setConfig(prev => ({
+                                ...prev,
+                                accessToken: tokenResponse.access_token,
+                                userProfile: { name: userInfo.result.name, email: userInfo.result.email }
+                            }));
+                        } catch (error) {
+                            console.error("Failed to fetch user info:", error);
+                            setConfig(prev => ({
+                                ...prev,
+                                accessToken: tokenResponse.access_token,
+                                userProfile: { name: "Google User", email: "Connected" }
+                            }));
+                        }
                     }
                 },
             });

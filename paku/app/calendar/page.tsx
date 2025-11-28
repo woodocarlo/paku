@@ -2,25 +2,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   ChevronLeft, ChevronRight, Plus, Video, CheckCircle, Bell, 
-  Trash2, Clock, X, AlignLeft, Calendar as CalendarIcon, 
-  Type, Sun, Moon, Coffee, Zap, Loader2, RefreshCw
+  AlertCircle, Trash2, Clock, Heart, X, AlignLeft, 
+  Calendar as CalendarIcon, Type, Sun, Moon, Coffee, Zap,
+  RefreshCw, LogIn, Check
 } from 'lucide-react';
-import { Button, InputGroup } from '@/components/ui/BaseComponents'; 
+import { Button, InputGroup } from '@/components/ui/BaseComponents';
 import { useGoogle } from '@/context/GoogleContext';
 
 // --- Types & Constants ---
-// 1. Removed 'Urgent' as requested
 const EVENT_CATEGORIES = [
-    { id: 'work', label: 'Work', color: 'purple', bg: 'bg-purple-100', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500' },
-    { id: 'personal', label: 'Personal', color: 'blue', bg: 'bg-blue-100', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' }
+    { id: 'work', label: 'Work', color: 'purple', bg: 'bg-purple-100/50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-500' },
+    { id: 'personal', label: 'Personal', color: 'blue', bg: 'bg-blue-100/50', text: 'text-blue-700', border: 'border-blue-200', dot: 'bg-blue-500' },
+    { id: 'urgent', label: 'Urgent', color: 'red', bg: 'bg-red-100/50', text: 'text-red-700', border: 'border-red-200', dot: 'bg-red-500' }
 ];
 
 const EVENT_TYPES = [
     { id: 'meeting', label: 'Meeting', icon: Video },
     { id: 'task', label: 'Task', icon: CheckCircle },
     { id: 'reminder', label: 'Reminder', icon: Bell },
+    { id: 'deadline', label: 'Deadline', icon: AlertCircle },
 ];
 
+// --- Helper Logic ---
 const useCalendarLogic = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const nextMonth = () => setCurrentDate(new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 1));
@@ -34,7 +37,6 @@ const useCalendarLogic = () => {
         const firstDayOfMonth = new Date(year, month, 1).getDay();
         
         const days = Array(firstDayOfMonth).fill({ day: null, fullDate: null, isToday: false });
-        
         for (let i = 1; i <= daysInMonth; i++) {
             days.push({ 
                 day: i, 
@@ -42,7 +44,6 @@ const useCalendarLogic = () => {
                 isToday: new Date().toDateString() === new Date(year, month, i).toDateString()
             });
         }
-        
         const remaining = 42 - days.length;
         for(let i=0; i<remaining; i++) days.push({ day: null, fullDate: null, isToday: false });
         
@@ -52,16 +53,21 @@ const useCalendarLogic = () => {
 };
 
 export default function CalendarPage() {
-    // --- Google Context ---
     const { config, handleAuthClick } = useGoogle();
     const { currentDate, nextMonth, prevMonth, goToToday, getDaysInMonth } = useCalendarLogic();
     
     // --- State ---
-    const [localEvents, setLocalEvents] = useState<any[]>([]);
-    const [googleEvents, setGoogleEvents] = useState<any[]>([]);
-    const [isLoadingGoogle, setIsLoadingGoogle] = useState(false);
+    const [localEvents, setLocalEvents] = useState<any[]>([
+        { id: '1', title: 'Physics Grading', date: new Date().toISOString().split('T')[0], time: '14:00', endTime: '15:00', category: 'work', type: 'task', description: 'Chapter 4 assignments.' },
+    ]);
     
     const [filter, setFilter] = useState('all'); 
+    
+    // Sync States
+    const [isSyncing, setIsSyncing] = useState(false);
+    const [lastSynced, setLastSynced] = useState<Date | null>(null);
+
+    // Modals & Popups
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isEmptyDateModalOpen, setIsEmptyDateModalOpen] = useState(false);
     const [selectedDateForAction, setSelectedDateForAction] = useState<string | null>(null);
@@ -70,65 +76,105 @@ export default function CalendarPage() {
     const [hoveredEvent, setHoveredEvent] = useState<any>(null);
     const [hoverPosition, setHoverPosition] = useState({ x: 0, y: 0 });
 
-    // AI/Assistant Message
+    // AI/Assistant
     const [assistantMessage, setAssistantMessage] = useState<any>(null);
     
     const [newEvent, setNewEvent] = useState({
         title: '', date: '', time: '12:00', endTime: '13:00', category: 'work', type: 'meeting', description: ''
     });
 
-    // --- Google Calendar Fetching Logic ---
-    const fetchGoogleEvents = async () => {
-        if (!config.accessToken || !window.gapi?.client?.calendar) return;
+    // --- Google Calendar Logic ---
 
-        setIsLoadingGoogle(true);
+    const syncWithGoogle = async () => {
+        if (!config.accessToken) return;
+        setIsSyncing(true);
+
         try {
-            // Fetch events for the current month view
+            // 1. Calculate start and end of current month for query
             const startOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
             const endOfMonth = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0);
 
+            // 2. Fetch from Google
             const response = await window.gapi.client.calendar.events.list({
                 'calendarId': 'primary',
                 'timeMin': startOfMonth.toISOString(),
                 'timeMax': endOfMonth.toISOString(),
                 'showDeleted': false,
                 'singleEvents': true,
-                'maxResults': 100,
                 'orderBy': 'startTime'
             });
 
-            const events = response.result.items.map((item: any) => {
-                const start = item.start.dateTime || item.start.date;
-                const end = item.end.dateTime || item.end.date;
-                const isAllDay = !item.start.dateTime;
+            const googleEvents = response.result.items;
+
+            // 3. Transform Google Events to Local Format
+            const formattedEvents = googleEvents.map((ev: any) => {
+                const start = ev.start.dateTime || ev.start.date; // Handle full day events
+                const end = ev.end.dateTime || ev.end.date;
                 
+                const dateObj = new Date(start);
+                const dateStr = dateObj.toISOString().split('T')[0];
+                const timeStr = dateObj.toTimeString().substring(0, 5); // "HH:MM"
+                
+                // Try to preserve existing category if we already have this ID, otherwise default
+                const existing = localEvents.find(le => le.id === ev.id);
+
                 return {
-                    id: item.id,
-                    title: item.summary || 'No Title',
-                    date: start.split('T')[0], // Extract YYYY-MM-DD
-                    time: isAllDay ? 'All Day' : new Date(start).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}),
-                    endTime: isAllDay ? '' : new Date(end).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', hour12: false}),
-                    category: 'work', // Defaulting Google events to work (or you could infer based on colorId)
-                    type: 'meeting',
-                    description: item.description || '',
-                    isGoogle: true
+                    id: ev.id,
+                    title: ev.summary || '(No Title)',
+                    date: dateStr,
+                    time: timeStr.includes('00:00:00') ? 'All Day' : timeStr,
+                    endTime: new Date(end).toTimeString().substring(0, 5),
+                    category: existing ? existing.category : 'personal', // Default to personal
+                    type: existing ? existing.type : 'meeting',
+                    description: ev.description || ''
                 };
             });
-            setGoogleEvents(events);
+
+            // 4. Merge (Simple overwrite for this demo to keep sync clean)
+            // In a real app, you might want to merge arrays more carefully
+            setLocalEvents(formattedEvents);
+            setLastSynced(new Date());
+
         } catch (error) {
-            console.error("Error fetching Google Calendar events", error);
+            console.error("Sync Error", error);
+            alert("Failed to sync with Google Calendar");
         } finally {
-            setIsLoadingGoogle(false);
+            setIsSyncing(false);
         }
     };
 
-    // Re-fetch when month changes or auth changes
-    useEffect(() => {
-        if(config.accessToken) fetchGoogleEvents();
-    }, [config.accessToken, currentDate]);
+    const addToGoogleCalendar = async (eventData: any) => {
+        if (!config.accessToken) return null; // Return null if offline
 
+        try {
+            // Construct Google Event Resource
+            const resource = {
+                summary: eventData.title,
+                description: eventData.description,
+                start: {
+                    dateTime: `${eventData.date}T${eventData.time}:00`,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                },
+                end: {
+                    dateTime: `${eventData.date}T${eventData.endTime}:00`,
+                    timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone
+                }
+            };
 
-    // --- AI/Assistant Sticker Logic ---
+            const response = await window.gapi.client.calendar.events.insert({
+                'calendarId': 'primary',
+                'resource': resource
+            });
+
+            return response.result.id; // Return the new Google ID
+        } catch (error) {
+            console.error("Add to Google Error", error);
+            alert("Could not save to Google Calendar (Saved locally only)");
+            return Date.now().toString(); // Fallback ID
+        }
+    };
+
+    // --- AI Logic ---
     useEffect(() => {
         if (!isAddModalOpen || !newEvent.date || !newEvent.time) {
             setAssistantMessage(null);
@@ -139,65 +185,37 @@ export default function CalendarPage() {
         const newStart = getMinutes(newEvent.time);
         const dayOfWeek = new Date(newEvent.date).getDay();
 
-        // Combine events for conflict check
-        const allEvents = [...localEvents, ...googleEvents];
-        const sameDayEvents = allEvents.filter(ev => ev.date === newEvent.date);
-        
-        // Conflict Warning
+        const sameDayEvents = localEvents.filter(ev => ev.date === newEvent.date);
         const conflict = sameDayEvents.find(ev => {
-            if(ev.time === 'All Day') return false;
             const evStart = getMinutes(ev.time);
-            return Math.abs(newStart - evStart) < 30; 
+            return Math.abs(newStart - evStart) < 30;
         });
 
         if (conflict) {
             setAssistantMessage({
-                bg: 'bg-red-100',
-                sticker: '🚨',
-                title: 'Oop! Tight Squeeze',
-                text: `You have "${conflict.title}" at ${conflict.time}. Maybe give yourself some breathing room?`
+                type: 'warning', icon: AlertCircle,
+                text: `Warning: Very close to "${conflict.title}" at ${conflict.time}.`
             });
             return;
         }
 
-        // Weekend "Self Care" Sticker
-        if (dayOfWeek === 0 || dayOfWeek === 6) {
-             if (newEvent.category === 'work') {
-                setAssistantMessage({
-                    bg: 'bg-orange-100',
-                    sticker: '🧘',
-                    title: 'Weekend Warrior?',
-                    text: "It's the weekend! Don't forget to relax and touch grass."
-                });
-                return;
-             }
+        if ((dayOfWeek === 0 || dayOfWeek === 6) && newEvent.category === 'work') {
+             setAssistantMessage({
+                type: 'care', icon: Coffee,
+                text: "It's the weekend! Sure you want to work?"
+            });
+            return;
         }
 
-        // Late Night Sticker
-        if (newStart > 1080) { // After 6 PM
+        if (newStart > 1080) {
             setAssistantMessage({
-                bg: 'bg-indigo-100',
-                sticker: '🌙',
-                title: 'Night Owl Mode',
-                text: "Scheduling late? Make sure to get your beauty sleep!"
+                type: 'care', icon: Moon,
+                text: "Late evening task? Get enough sleep after."
             });
             return;
         }
-
-        // Busy Day Sticker
-        if (sameDayEvents.length > 3) {
-            setAssistantMessage({
-                bg: 'bg-yellow-100',
-                sticker: '⚡',
-                title: 'Power User',
-                text: "Wow, busy day! Remember to hydrate between tasks."
-            });
-            return;
-        }
-
         setAssistantMessage(null);
-
-    }, [newEvent.date, newEvent.time, newEvent.category, isAddModalOpen, localEvents, googleEvents]);
+    }, [newEvent.date, newEvent.time, newEvent.category, isAddModalOpen, localEvents]);
 
 
     // --- Handlers ---
@@ -219,19 +237,24 @@ export default function CalendarPage() {
         setIsAddModalOpen(true);
     };
 
-    const handleAddEvent = (e: React.FormEvent) => {
+    const handleAddEvent = async (e: React.FormEvent) => {
         e.preventDefault();
-        // If syncing back to Google is needed, you'd add the API call here.
-        // For now, we save locally.
-        setLocalEvents(prev => [...prev, { id: Date.now().toString(), ...newEvent }]);
+        
+        let finalId = Date.now().toString(); // Default local ID
+
+        // If online, save to Google first
+        if (config.accessToken) {
+            const googleId = await addToGoogleCalendar(newEvent);
+            if (googleId) finalId = googleId;
+        }
+
+        setLocalEvents(prev => [...prev, { id: finalId, ...newEvent }]);
         setIsAddModalOpen(false);
     };
 
     const getEventsForDate = (dateStr: string | null) => {
         if(!dateStr) return [];
-        const combined = [...localEvents, ...googleEvents];
-        return combined.filter(ev => ev.date === dateStr && (filter === 'all' || ev.category === filter))
-            .sort((a, b) => a.time.localeCompare(b.time));
+        return localEvents.filter(ev => ev.date === dateStr && (filter === 'all' || ev.category === filter)).sort((a, b) => a.time.localeCompare(b.time));
     };
 
     const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -255,15 +278,23 @@ export default function CalendarPage() {
                     </div>
                 </div>
 
-                <div className="flex items-center gap-3">
-                    {/* Google Status Indicator */}
+                <div className="flex gap-3">
+                    {/* Sync Button */}
                     {config.accessToken ? (
-                        <div className="flex items-center gap-2 px-3 py-1.5 bg-green-50 text-green-700 rounded-full text-xs font-medium border border-green-100">
-                            {isLoadingGoogle ? <Loader2 size={12} className="animate-spin"/> : <RefreshCw size={12} onClick={fetchGoogleEvents} className="cursor-pointer"/>}
-                            <span>Synced</span>
-                        </div>
+                        <button 
+                            onClick={syncWithGoogle} 
+                            disabled={isSyncing}
+                            className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors text-sm font-bold"
+                        >
+                            <RefreshCw size={18} className={isSyncing ? 'animate-spin' : ''} />
+                            {isSyncing ? 'Syncing...' : 'Sync Google'}
+                        </button>
                     ) : (
-                        <button onClick={handleAuthClick} className="text-xs text-blue-600 hover:underline">
+                        <button 
+                            onClick={handleAuthClick} 
+                            className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-600 rounded-xl hover:bg-gray-200 transition-colors text-sm font-bold"
+                        >
+                            <LogIn size={18} />
                             Connect Google
                         </button>
                     )}
@@ -273,7 +304,7 @@ export default function CalendarPage() {
                             <button key={f} onClick={() => setFilter(f)} className={`px-4 py-1.5 rounded-full text-xs font-bold uppercase tracking-wide transition-all ${filter === f ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}>{f}</button>
                         ))}
                     </div>
-                    <Button onClick={() => handleOpenAddModal()} icon={Plus} className="bg-indigo-600 text-white hover:bg-indigo-700 rounded-xl px-5 shadow-lg shadow-indigo-200">Add Event</Button>
+                    <Button onClick={() => handleOpenAddModal()} icon={Plus} className="bg-gray-900 text-white hover:bg-gray-800 rounded-xl px-5 shadow-lg shadow-gray-300/50">Add Event</Button>
                 </div>
             </div>
 
@@ -297,21 +328,16 @@ export default function CalendarPage() {
                             <div 
                                 key={index} 
                                 onClick={() => handleDateClick(dayObj.fullDate)}
-                                className={`
-                                    relative p-2 border-r border-b border-gray-100 transition-all cursor-pointer group
-                                    ${dayObj.isToday ? 'bg-indigo-50/40' : 'hover:bg-gray-50'}
-                                    ${isWeekend && !dayObj.isToday ? 'bg-orange-50/30' : ''}
-                                `}
+                                className={`relative p-2 border-r border-b border-gray-100 transition-all cursor-pointer group ${dayObj.isToday ? 'bg-blue-50/40' : 'hover:bg-gray-50'} ${isWeekend && !dayObj.isToday ? 'bg-orange-50/30' : ''}`}
                             >
                                 <div className="flex justify-between items-start">
-                                    <span className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold ${dayObj.isToday ? 'bg-indigo-600 text-white shadow-md' : 'text-gray-400 group-hover:text-gray-800'}`}>
+                                    <span className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-bold ${dayObj.isToday ? 'bg-blue-600 text-white shadow-md' : 'text-gray-400 group-hover:text-gray-800'}`}>
                                         {dayObj.day}
                                     </span>
-                                    <button onClick={(e) => { e.stopPropagation(); handleOpenAddModal(dayObj.fullDate); }} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-indigo-600 transition-opacity">
+                                    <button onClick={(e) => { e.stopPropagation(); handleOpenAddModal(dayObj.fullDate); }} className="opacity-0 group-hover:opacity-100 text-gray-300 hover:text-blue-600 transition-opacity">
                                         <Plus size={16} />
                                     </button>
                                 </div>
-
                                 <div className="mt-1 space-y-1">
                                     {events.slice(0, 3).map((ev) => {
                                         const style = EVENT_CATEGORIES.find(c => c.id === ev.category) || EVENT_CATEGORIES[0];
@@ -324,14 +350,15 @@ export default function CalendarPage() {
                                                     setHoveredEvent(ev);
                                                 }}
                                                 onMouseLeave={() => setHoveredEvent(null)}
-                                                className={`text-[10px] px-2 py-1 rounded-md font-medium truncate flex items-center gap-1.5 transition-transform hover:scale-105 ${ev.isGoogle ? 'bg-green-50 text-green-700 border border-green-100' : `${style.bg} ${style.text}`}`}
+                                                className={`text-[10px] px-2 py-1 rounded-md font-medium truncate flex items-center gap-1.5 transition-transform hover:scale-105 ${style.bg} ${style.text}`}
                                             >
-                                                <div className={`w-1.5 h-1.5 rounded-full ${ev.isGoogle ? 'bg-green-500' : style.dot}`}></div>
+                                                <div className={`w-1.5 h-1.5 rounded-full ${style.dot}`}></div>
                                                 <span className="opacity-75">{ev.time}</span>
                                                 <span className="truncate">{ev.title}</span>
                                             </div>
                                         );
                                     })}
+                                    {events.length > 3 && <div className="text-[9px] text-gray-400 pl-2">+{events.length - 3} more</div>}
                                 </div>
                             </div>
                         );
@@ -341,111 +368,78 @@ export default function CalendarPage() {
 
             {/* --- Hover Detail Card --- */}
             {hoveredEvent && (
-                <div 
-                    className="fixed z-50 w-64 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/50 p-4 animate-in fade-in zoom-in-95 duration-200 pointer-events-none"
-                    style={{ top: hoverPosition.y, left: hoverPosition.x }}
-                >
+                <div className="fixed z-50 w-64 bg-white/90 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/50 p-4 animate-in fade-in zoom-in-95 duration-200 pointer-events-none" style={{ top: hoverPosition.y, left: hoverPosition.x }}>
                     <div className="flex justify-between items-start mb-2">
                         <h4 className="font-bold text-gray-800 text-sm">{hoveredEvent.title}</h4>
-                        {hoveredEvent.isGoogle && <span className="text-[9px] bg-green-100 text-green-700 px-2 py-0.5 rounded-full">G-Cal</span>}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${EVENT_CATEGORIES.find(c => c.id === hoveredEvent.category)?.bg} ${EVENT_CATEGORIES.find(c => c.id === hoveredEvent.category)?.text}`}>
+                            {hoveredEvent.category}
+                        </span>
                     </div>
                     <div className="space-y-2 text-xs text-gray-600">
-                        <div className="flex items-center gap-2">
-                            <Clock size={14} className="text-indigo-500"/>
-                            <span>{hoveredEvent.time} {hoveredEvent.endTime ? `- ${hoveredEvent.endTime}` : ''}</span>
-                        </div>
-                        {hoveredEvent.description && (
-                             <div className="flex items-start gap-2 bg-gray-50 p-2 rounded-lg">
-                                <AlignLeft size={14} className="text-gray-400 mt-0.5 shrink-0"/>
-                                <p className="italic line-clamp-3">{hoveredEvent.description}</p>
-                            </div>
-                        )}
+                        <div className="flex items-center gap-2"><Clock size={14} className="text-blue-500"/><span>{hoveredEvent.time} - {hoveredEvent.endTime || '...'}</span></div>
+                        <div className="flex items-start gap-2"><AlignLeft size={14} className="text-gray-400 mt-0.5"/><p className="italic">{hoveredEvent.description || "No description provided."}</p></div>
                     </div>
                 </div>
             )}
 
-            {/* --- Add/Edit Event Modal (New Color Scheme) --- */}
+            {/* --- "No Tasks" Modal --- */}
+            {isEmptyDateModalOpen && (
+                <div className="fixed inset-0 bg-black/20 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in duration-200" onClick={() => setIsEmptyDateModalOpen(false)}>
+                    <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/50 p-8 max-w-sm w-full text-center" onClick={e => e.stopPropagation()}>
+                        <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-500"><Sun size={32} /></div>
+                        <h3 className="text-xl font-bold text-gray-800 mb-2">Clear Schedule!</h3>
+                        <p className="text-gray-500 text-sm mb-6">No tasks scheduled for <span className="font-semibold text-gray-700">{selectedDateForAction}</span>.</p>
+                        <div className="flex flex-col gap-3">
+                            <Button onClick={() => handleOpenAddModal(selectedDateForAction)} className="w-full justify-center bg-blue-600 text-white hover:bg-blue-700 py-3 rounded-xl shadow-lg shadow-blue-500/30"><Plus size={18} className="mr-2"/> Add a Task</Button>
+                            <button onClick={() => setIsEmptyDateModalOpen(false)} className="text-sm text-gray-400 hover:text-gray-600 font-medium">Enjoy the free time</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* --- Add Event Modal --- */}
             {isAddModalOpen && (
-                <div className="fixed inset-0 bg-indigo-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-in fade-in">
-                    <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg overflow-hidden border border-white transform transition-all">
-                        
-                        {/* Header */}
-                        <div className="px-8 py-6 border-b border-gray-50 flex justify-between items-center bg-gradient-to-r from-indigo-50 to-white">
-                            <div>
-                                <h3 className="font-bold text-xl text-indigo-950">New Schedule</h3>
-                                <p className="text-xs text-indigo-400 font-medium">Add to your timeline</p>
-                            </div>
-                            <button onClick={() => setIsAddModalOpen(false)} className="p-2 rounded-full hover:bg-indigo-100 text-indigo-300 hover:text-indigo-600 transition-colors"><X size={20}/></button>
+                <div className="fixed inset-0 bg-gray-900/40 backdrop-blur-md z-50 flex items-center justify-center p-4 animate-in fade-in">
+                    <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
+                        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <h3 className="font-bold text-lg text-gray-800">Add New Event</h3>
+                            <button onClick={() => setIsAddModalOpen(false)} className="p-1 rounded-full hover:bg-gray-200 text-gray-500"><X size={20}/></button>
                         </div>
 
-                        {/* AI Sticker Message */}
-                        <div className={`transition-all duration-300 overflow-hidden ${assistantMessage ? 'max-h-32 opacity-100 px-8 pt-6' : 'max-h-0 opacity-0'}`}>
+                        <div className={`transition-all duration-300 overflow-hidden ${assistantMessage ? 'max-h-24 opacity-100 p-4 border-b border-gray-100' : 'max-h-0 opacity-0'}`}>
                             {assistantMessage && (
-                                <div className={`flex items-center gap-4 rounded-2xl p-4 ${assistantMessage.bg} border border-white shadow-sm`}>
-                                    <div className="text-4xl filter drop-shadow-sm animate-bounce-slow">{assistantMessage.sticker}</div>
+                                <div className={`flex items-start gap-3 rounded-xl p-3 ${assistantMessage.type === 'warning' ? 'bg-red-50 text-red-700' : 'bg-indigo-50 text-indigo-700'}`}>
+                                    <assistantMessage.icon size={20} className="shrink-0 mt-0.5" />
                                     <div>
-                                        <p className="text-xs font-bold uppercase tracking-wider opacity-60 mb-0.5">{assistantMessage.title}</p>
-                                        <p className="text-sm font-semibold leading-snug text-gray-800">{assistantMessage.text}</p>
+                                        <p className="text-xs font-bold uppercase tracking-wider opacity-70 mb-0.5">{assistantMessage.type === 'warning' ? 'Conflict Alert' : 'Self Care Tip'}</p>
+                                        <p className="text-sm font-medium leading-snug">{assistantMessage.text}</p>
                                     </div>
                                 </div>
                             )}
                         </div>
 
-                        <form onSubmit={handleAddEvent} className="p-8 space-y-6">
-                            {/* Categories */}
-                            <div className="flex gap-3">
+                        <form onSubmit={handleAddEvent} className="p-6 space-y-5">
+                            <div className="flex gap-2 p-1 bg-gray-100 rounded-xl">
                                 {EVENT_CATEGORIES.map(cat => (
-                                    <button 
-                                        key={cat.id} type="button" 
-                                        onClick={() => setNewEvent(prev => ({ ...prev, category: cat.id }))} 
-                                        className={`flex-1 py-3 rounded-2xl text-sm font-bold transition-all border-2 ${newEvent.category === cat.id ? `border-${cat.color}-100 ${cat.bg} ${cat.text}` : 'bg-white border-gray-100 text-gray-400 hover:border-gray-200'}`}
-                                    >
-                                        {cat.label}
-                                    </button>
+                                    <button key={cat.id} type="button" onClick={() => setNewEvent(prev => ({ ...prev, category: cat.id }))} className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all ${newEvent.category === cat.id ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>{cat.label}</button>
                                 ))}
                             </div>
-
-                            <InputGroup label="Title" value={newEvent.title} onChange={(e: any) => setNewEvent({ ...newEvent, title: e.target.value })} icon={Type} placeholder="What's happening?" required />
-                            
-                            <div className="grid grid-cols-2 gap-5">
+                            <InputGroup label="Event Title" value={newEvent.title} onChange={(e: any) => setNewEvent({ ...newEvent, title: e.target.value })} icon={Type} placeholder="e.g., Deep Work Session" required />
+                            <div className="grid grid-cols-3 gap-4">
                                 <InputGroup label="Date" type="date" value={newEvent.date} onChange={(e: any) => setNewEvent({ ...newEvent, date: e.target.value })} required />
-                                <div className="flex gap-2">
-                                    <InputGroup label="Start" type="time" value={newEvent.time} onChange={(e: any) => setNewEvent({ ...newEvent, time: e.target.value })} icon={Clock} required />
-                                    {/* 3. Conditional End Time */}
-                                    {newEvent.type === 'meeting' && (
-                                         <InputGroup label="End" type="time" value={newEvent.endTime} onChange={(e: any) => setNewEvent({ ...newEvent, endTime: e.target.value })} icon={Clock} />
-                                    )}
-                                </div>
+                                <InputGroup label="Start" type="time" value={newEvent.time} onChange={(e: any) => setNewEvent({ ...newEvent, time: e.target.value })} icon={Clock} required />
+                                <InputGroup label="End" type="time" value={newEvent.endTime} onChange={(e: any) => setNewEvent({ ...newEvent, endTime: e.target.value })} icon={Clock} />
                             </div>
-
-                            <div className="flex gap-2 p-1 bg-gray-50 rounded-xl">
+                            <div className="grid grid-cols-4 gap-2">
                                 {EVENT_TYPES.map(type => (
-                                    <button 
-                                        key={type.id} type="button" 
-                                        onClick={() => setNewEvent(prev => ({ ...prev, type: type.id }))} 
-                                        className={`flex-1 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-all ${newEvent.type === type.id ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
-                                    >
-                                        <type.icon size={14}/>
-                                        {type.label}
+                                    <button key={type.id} type="button" onClick={() => setNewEvent(prev => ({ ...prev, type: type.id }))} className={`py-3 rounded-xl text-[10px] font-bold border flex flex-col items-center gap-1 transition-colors ${newEvent.type === type.id ? 'bg-gray-800 text-white border-gray-800' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-300'}`}>
+                                        <type.icon size={14}/> {type.label}
                                     </button>
                                 ))}
                             </div>
-
-                            <Button type="submit" className="w-full justify-center py-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl shadow-xl shadow-indigo-200 font-bold text-lg">
-                                Save Event
-                            </Button>
+                            <div className="relative group"><AlignLeft size={16} className="absolute top-3 left-3 text-gray-400"/><textarea rows={2} className="w-full pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all" placeholder="Add notes or details..." value={newEvent.description} onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}></textarea></div>
+                            <Button type="submit" className="w-full justify-center py-3 bg-gradient-to-r from-gray-900 to-gray-800 text-white rounded-xl shadow-lg shadow-gray-200">Confirm Schedule</Button>
                         </form>
-                    </div>
-                </div>
-            )}
-            
-             {/* Empty State Modal (Reusing functionality, just simplified) */}
-             {isEmptyDateModalOpen && (
-                <div className="fixed inset-0 bg-indigo-900/20 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setIsEmptyDateModalOpen(false)}>
-                    <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center shadow-2xl" onClick={e => e.stopPropagation()}>
-                         <Sun size={48} className="mx-auto text-orange-400 mb-4"/>
-                         <h3 className="text-lg font-bold text-gray-800">No plans yet!</h3>
-                         <Button onClick={() => handleOpenAddModal(selectedDateForAction)} className="mt-6 w-full justify-center bg-indigo-600 text-white py-3">Create Plan</Button>
                     </div>
                 </div>
             )}
