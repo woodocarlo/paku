@@ -1,0 +1,3 @@
+- [x] Update PreferencesContext import in paku/app/settings/customize/page.tsx
+- [x] Update PreferencesContext import in paku/app/page.tsx
+- [x] Update calendar import in paku/app/page.tsx

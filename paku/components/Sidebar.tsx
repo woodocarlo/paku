@@ -2,15 +2,16 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { 
-  BookOpen, 
-  FlaskConical, 
-  Video, 
-  LayoutDashboard, 
-  Settings, 
-  Calendar as CalendarIcon, 
+import {
+  BookOpen,
+  FlaskConical,
+  Video,
+  LayoutDashboard,
+  Settings,
+  Calendar as CalendarIcon,
   User,
-  LogOut 
+  LogOut,
+  Plus
 } from 'lucide-react';
 import { useGoogle } from '@/context/GoogleContext';
 

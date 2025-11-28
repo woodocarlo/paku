@@ -4,7 +4,8 @@ import {
   FileText, Clock, FlaskConical, BarChart3, Cloud, Sun, 
   BookOpen, Quote, ChevronDown, ChevronUp, 
   GraduationCap, Calendar as CalendarIcon, RefreshCw,
-  MapPin, CloudRain, Wind, CloudFog, CloudLightning, Moon, Star
+  MapPin, CloudRain, Wind, CloudFog, CloudLightning, Moon, Star,
+  AlertCircle, StickyNote, CheckCircle, Plus, Users, Bell, Link as LinkIcon, Upload, X, Loader2
 } from 'lucide-react';
 
 // Import the Google Context (Same as your CalendarPage)
@@ -17,14 +18,16 @@ const Card = ({ children, className = "", onClick }: any) => (
   </div>
 );
 
-const Button = ({ children, onClick, variant = "primary", className = "", icon: Icon }: any) => {
-  const baseStyle = "flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all active:scale-95";
+const Button = ({ children, onClick, variant = "primary", className = "", icon: Icon, disabled = false }: any) => {
+  const baseStyle = "flex items-center justify-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed";
   const styles = {
     primary: "bg-gray-900 text-white hover:bg-gray-800 shadow-lg shadow-gray-200",
     outline: "border border-gray-200 text-gray-700 hover:bg-gray-50",
+    ghost: "text-gray-600 hover:bg-gray-100",
+    danger: "bg-red-50 text-red-600 hover:bg-red-100"
   };
   return (
-    <button onClick={onClick} className={`${baseStyle} ${styles[variant as keyof typeof styles]} ${className}`}>
+    <button onClick={onClick} disabled={disabled} className={`${baseStyle} ${styles[variant as keyof typeof styles]} ${className}`}>
       {Icon && <Icon size={16} />}
       {children}
     </button>
@@ -40,34 +43,27 @@ const useTimeTheme = () => {
 
   useEffect(() => {
     const hour = new Date().getHours();
-    
-    // Gradients that start strong at top and fade to white at bottom
     if (hour >= 5 && hour < 12) {
-      // Morning: Orange/Amber Sunrise
       setThemeClass("bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-orange-300 via-amber-100 to-white");
       setTextColor("text-orange-950");
     } else if (hour >= 12 && hour < 17) {
-      // Afternoon: Bright Blue Sky
       setThemeClass("bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sky-400 via-blue-100 to-white");
       setTextColor("text-blue-950");
     } else if (hour >= 17 && hour < 20) {
-      // Evening: Sunset Purple/Pink
       setThemeClass("bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-400 via-purple-200 to-white");
       setTextColor("text-indigo-950");
     } else {
-      // Night: Dark Blue/Black with "Stars" feel
-      // Using a very dark gradient that fades to white
       setThemeClass("bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-slate-900 via-slate-800 to-white");
-      setTextColor("text-white"); // Header text becomes white at night for contrast
+      setTextColor("text-white"); 
     }
   }, []);
 
   return { themeClass, textColor };
 };
 
-// 2. Google Calendar Integration Hook (Adapted from CalendarPage)
+// 2. Google Calendar Integration Hook
 const useCalendarAgenda = () => {
-    const { config } = useGoogle(); // Uses your existing context
+    const { config } = useGoogle(); 
     const [events, setEvents] = useState<any[]>([]);
     const [loading, setLoading] = useState(false);
 
@@ -95,8 +91,6 @@ const useCalendarAgenda = () => {
                 const start = ev.start.dateTime || ev.start.date;
                 const dateObj = new Date(start);
                 const timeStr = dateObj.toTimeString().substring(0, 5);
-                
-                // Determine urgency based on keywords or proximity
                 const isUrgent = ev.summary?.toLowerCase().includes('urgent') || ev.summary?.toLowerCase().includes('deadline');
 
                 return {
@@ -149,6 +143,7 @@ const useWeather = (lat: number, long: number) => {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     setLoading(true);
+    // Added windspeed and humidity to the fetch
     fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${long}&current_weather=true&temperature_unit=celsius`)
       .then(res => res.json()).then(data => { setWeather(data.current_weather); setLoading(false); })
       .catch(err => setLoading(false));
@@ -192,11 +187,11 @@ const useQuote = () => {
   return quote;
 };
 
-// --- Mock Data for Classes ---
+// --- Mock Data ---
 const CLASSES = [
-  { id: 1, name: 'Advanced Physics A', subject: 'Science', students: 24, nextClass: '10:30 AM', color: 'bg-blue-50 text-blue-700' },
-  { id: 2, name: 'Intro to Chemistry', subject: 'Science', students: 30, nextClass: '01:00 PM', color: 'bg-purple-50 text-purple-700' },
-  { id: 3, name: '10th Grade Homeroom', subject: 'General', students: 18, nextClass: '08:00 AM', color: 'bg-emerald-50 text-emerald-700' }
+  { id: 1, name: 'Operating Systems', subject: '3rd Year CSE', students: 54, nextClass: '10:30 AM', color: 'bg-blue-50 text-blue-700' },
+  { id: 2, name: 'Programming in Python', subject: '2nd Year', students: 60, nextClass: '01:00 PM', color: 'bg-yellow-50 text-yellow-700' },
+  { id: 3, name: 'DBMS', subject: '3rd Year', students: 48, nextClass: '08:00 AM', color: 'bg-emerald-50 text-emerald-700' }
 ];
 
 const NEWS_CATEGORIES = ["Technology", "AI", "Science", "Education"];
@@ -208,11 +203,22 @@ export default function Dashboard() {
   const [activeCategory, setActiveCategory] = useState("Technology");
   const { news, loading: newsLoading } = useNews(activeCategory);
   const quote = useQuote();
-  
-  // Real Calendar Data
   const { events: calendarEvents, loading: calendarLoading, isConnected } = useCalendarAgenda();
 
   const [expandedClass, setExpandedClass] = useState<number | null>(null);
+  const [note, setNote] = useState("");
+
+  // Assignment Modal States
+  const [showModal, setShowModal] = useState(false);
+  const [selectedClassForAssignment, setSelectedClassForAssignment] = useState<any>(null);
+  const [driveLinkLoading, setDriveLinkLoading] = useState(false);
+  const [generatedLink, setGeneratedLink] = useState<string | null>(null);
+  const [assignmentData, setAssignmentData] = useState({
+      title: "",
+      deadline: "",
+      description: "",
+      target: "all" // 'all' or 'selected'
+  });
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -222,15 +228,33 @@ export default function Dashboard() {
   };
 
   const getWeatherIcon = (code: number) => {
-    if (code <= 1) return <Sun size={24} className="text-amber-500" />;
-    return <Cloud size={24} className="text-slate-500" />;
+    if (code <= 1) return <Sun size={32} className="text-amber-500" />;
+    return <Cloud size={32} className="text-slate-500" />;
+  };
+
+  const handleOpenAssignment = (cls: any) => {
+      setSelectedClassForAssignment(cls);
+      setShowModal(true);
+      setGeneratedLink(null);
+      setAssignmentData({ title: "", deadline: "", description: "", target: "all" });
+  };
+
+  const handleGenerateDriveLink = () => {
+      if(!assignmentData.title) return alert("Please enter a title first.");
+      setDriveLinkLoading(true);
+      // Simulate API Call
+      setTimeout(() => {
+          const sanitizedTitle = assignmentData.title.replace(/\s+/g, '-').toLowerCase();
+          setGeneratedLink(`https://drive.google.com/drive/folders/assignment-${sanitizedTitle}-${Date.now()}`);
+          setDriveLinkLoading(false);
+      }, 1500);
   };
 
   return (
     <div className={`min-h-screen transition-all duration-1000 ease-in-out p-6 font-sans text-gray-800 space-y-8 ${themeClass}`}>
       
       {/* --- Header Row --- */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
+      <div className="flex flex-col md:flex-row justify-between items-end gap-4">
         <div>
           <h1 className={`text-4xl font-extrabold tracking-tight mb-2 transition-colors duration-500 text-gray-900`}>
             {getGreeting()}, Professor.
@@ -240,34 +264,12 @@ export default function Dashboard() {
             {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
         </div>
-        
-        {/* Weather Widget */}
-        <Card className="px-5 py-3 flex items-center gap-4 border-white/40 min-w-[240px]">
-          {weatherLoading ? (
-             <div className="flex items-center gap-2 text-sm text-gray-400">
-                <RefreshCw className="animate-spin" size={16} /> Fetching...
-             </div>
-          ) : (
-            <>
-              <div className="p-3 bg-blue-50/80 rounded-full shadow-inner">
-                {weather ? getWeatherIcon(weather.weathercode) : <Sun size={24} />}
-              </div>
-              <div>
-                <div className="text-3xl font-bold flex items-center gap-1 text-gray-800">
-                  {weather ? Math.round(weather.temperature) : '--'}°
-                </div>
-                <div className="flex items-center gap-1 text-xs text-gray-500 font-bold uppercase tracking-wider mt-1">
-                  <MapPin size={10} className="text-blue-500" /> {location.city}
-                </div>
-              </div>
-            </>
-          )}
-        </Card>
+        {/* Weather moved to Right Column, header kept clean for greeting */}
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* --- Left Column --- */}
+        {/* --- Left Column (Main Content) --- */}
         <div className="lg:col-span-2 space-y-6">
           
           {/* Quote Widget */}
@@ -279,24 +281,43 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Stats Cards */}
+          {/* New Stats Cards (Replaced based on prompt) */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <Card className="p-5 border-l-4 border-l-blue-500">
+            
+            {/* Card 1: Rescheduling Alert */}
+            <Card className="p-5 border-l-4 border-l-red-400 bg-red-50/50">
               <div className="flex justify-between items-start">
-                <div><p className="text-gray-500 text-xs font-bold uppercase">Pending Grading</p><h2 className="text-3xl font-extrabold text-gray-800 mt-1">24</h2></div>
-                <div className="p-2 bg-blue-50 rounded-xl text-blue-600"><FileText size={20} /></div>
+                <div>
+                  <p className="text-red-500 text-xs font-bold uppercase tracking-wider">Attention Needed</p>
+                  <h2 className="text-3xl font-extrabold text-gray-800 mt-1">4</h2>
+                  <p className="text-sm font-medium text-gray-600 mt-1 leading-tight">Classes to be rescheduled</p>
+                </div>
+                <div className="p-2 bg-white rounded-xl text-red-500 shadow-sm"><AlertCircle size={20} /></div>
               </div>
             </Card>
-            <Card className="p-5 border-l-4 border-l-purple-500">
-              <div className="flex justify-between items-start">
-                <div><p className="text-gray-500 text-xs font-bold uppercase">Reports Scanned</p><h2 className="text-3xl font-extrabold text-gray-800 mt-1">45</h2></div>
-                <div className="p-2 bg-purple-50 rounded-xl text-purple-600"><FlaskConical size={20} /></div>
-              </div>
+
+            {/* Card 2: Quick Note */}
+            <Card className="p-4 relative group">
+                <div className="flex justify-between items-start mb-2">
+                    <p className="text-gray-500 text-xs font-bold uppercase flex items-center gap-1"><StickyNote size={12}/> Quick Note</p>
+                </div>
+                <textarea 
+                    value={note}
+                    onChange={(e) => setNote(e.target.value)}
+                    placeholder="Type a reminder here..."
+                    className="w-full bg-transparent resize-none outline-none text-gray-700 text-sm font-medium placeholder:text-gray-400 h-[60px]"
+                />
             </Card>
+
+            {/* Card 3: Lab Manuals */}
             <Card className="p-5 border-l-4 border-l-emerald-500">
               <div className="flex justify-between items-start">
-                <div><p className="text-gray-500 text-xs font-bold uppercase">Class Average</p><h2 className="text-3xl font-extrabold text-gray-800 mt-1">87%</h2></div>
-                <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600"><BarChart3 size={20} /></div>
+                <div>
+                  <p className="text-emerald-600 text-xs font-bold uppercase tracking-wider">Grading Update</p>
+                  <h2 className="text-3xl font-extrabold text-gray-800 mt-1">100%</h2>
+                  <p className="text-sm font-medium text-gray-600 mt-1 leading-tight">Lab manuals assessed</p>
+                </div>
+                <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600"><CheckCircle size={20} /></div>
               </div>
             </Card>
           </div>
@@ -304,38 +325,90 @@ export default function Dashboard() {
           {/* Classes Section */}
           <div className="space-y-4">
             <h3 className={`text-xl font-bold flex items-center gap-2 ${textColor} transition-colors duration-500`}>
-              <BookOpen size={20} className="opacity-70" /> Your Classes
+              <BookOpen size={20} className="opacity-70" /> Course Management
             </h3>
             <div className="space-y-3">
               {CLASSES.map((cls) => (
-                <Card key={cls.id} className={`overflow-hidden transition-all duration-300 ${expandedClass === cls.id ? 'ring-2 ring-blue-500 shadow-lg' : ''}`}>
-                  <div onClick={() => setExpandedClass(expandedClass === cls.id ? null : cls.id)} className="p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50">
-                    <div className="flex items-center gap-4">
-                      <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${cls.color}`}><GraduationCap size={24} /></div>
-                      <div>
-                        <h4 className="font-bold text-gray-800 text-lg">{cls.name}</h4>
-                        <p className="text-sm text-gray-500">{cls.subject} • {cls.students} Students</p>
-                      </div>
+                <div key={cls.id} className="group">
+                    <Card className={`overflow-hidden transition-all duration-300 ${expandedClass === cls.id ? 'ring-2 ring-blue-500 shadow-xl z-10 relative' : ''}`}>
+                    {/* Header of Card */}
+                    <div onClick={() => setExpandedClass(expandedClass === cls.id ? null : cls.id)} className="p-5 flex items-center justify-between cursor-pointer hover:bg-gray-50/50">
+                        <div className="flex items-center gap-4">
+                        <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${cls.color}`}><GraduationCap size={24} /></div>
+                        <div>
+                            <h4 className="font-bold text-gray-800 text-lg">{cls.name}</h4>
+                            <p className="text-sm text-gray-500">{cls.subject} • {cls.students} Students</p>
+                        </div>
+                        </div>
+                        {expandedClass === cls.id ? <ChevronUp className="text-gray-400" /> : <ChevronDown className="text-gray-400" />}
                     </div>
-                    {expandedClass === cls.id ? <ChevronUp className="text-gray-400" /> : <ChevronDown className="text-gray-400" />}
-                  </div>
-                </Card>
+
+                    {/* Expanded Content */}
+                    {expandedClass === cls.id && (
+                        <div className="px-5 pb-5 pt-0 animate-in slide-in-from-top-2 duration-200">
+                            <hr className="border-gray-100 mb-4" />
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                <Button onClick={() => handleOpenAssignment(cls)} variant="outline" className="bg-blue-50 border-blue-100 text-blue-700 hover:bg-blue-100" icon={Plus}>
+                                    Create Assignment
+                                </Button>
+                                <Button variant="outline" icon={Users}>
+                                    View Students
+                                </Button>
+                                <Button variant="outline" icon={Bell}>
+                                    Set Reminders
+                                </Button>
+                            </div>
+                        </div>
+                    )}
+                    </Card>
+                </div>
               ))}
             </div>
           </div>
         </div>
 
-        {/* --- Right Column --- */}
+        {/* --- Right Column (Widgets) --- */}
         <div className="space-y-6">
           
-          {/* Calendar Agenda Widget (Live Data) */}
+          {/* Weather Widget (Moved here, width equals agenda) */}
+          <Card className="p-6 relative overflow-hidden text-gray-800">
+             {weatherLoading ? (
+                 <div className="flex items-center justify-center py-6 text-gray-400 gap-2"><RefreshCw className="animate-spin" /> Loading Weather...</div>
+             ) : (
+                <div className="flex flex-col gap-4">
+                    <div className="flex justify-between items-center">
+                        <div className="flex items-center gap-2 text-sm font-semibold opacity-60">
+                            <MapPin size={14} /> {location.city}
+                        </div>
+                        <div className="bg-amber-100 p-2 rounded-full">{getWeatherIcon(weather.weathercode)}</div>
+                    </div>
+                    
+                    <div className="flex items-end gap-2">
+                        <span className="text-5xl font-extrabold tracking-tighter">{Math.round(weather.temperature)}°</span>
+                        <span className="text-lg font-medium mb-1 opacity-70">C</span>
+                    </div>
+
+                    {/* Extra Info row to minimize congestion but add value */}
+                    <div className="grid grid-cols-2 gap-2 mt-2 pt-4 border-t border-gray-100">
+                        <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                            <Wind size={14} /> {weather.windspeed} km/h Wind
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-medium text-gray-500">
+                            <CloudFog size={14} /> Humidity High
+                        </div>
+                    </div>
+                </div>
+             )}
+          </Card>
+
+          {/* Calendar Agenda Widget */}
           <Card className="p-5">
             <div className="flex justify-between items-center mb-4">
               <h3 className="font-bold text-gray-800 flex items-center gap-2"><CalendarIcon size={18} className="text-blue-500" /> Today's Agenda</h3>
               <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">{calendarEvents.length} Events</span>
             </div>
             
-            <div className="space-y-3 min-h-[150px]">
+            <div className="space-y-3 max-h-[300px] overflow-y-auto pr-2 scrollbar-thin">
                 {!isConnected ? (
                      <div className="text-center py-8 flex flex-col items-center gap-2 text-gray-400">
                          <CloudRain size={32} className="opacity-50" />
@@ -395,6 +468,121 @@ export default function Dashboard() {
 
         </div>
       </div>
+
+      {/* --- Assignment Modal --- */}
+      {showModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            {/* Backdrop */}
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={() => setShowModal(false)} />
+            
+            {/* Modal Content */}
+            <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl relative z-10 overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                    <div>
+                        <h2 className="text-lg font-bold text-gray-800">New Assignment</h2>
+                        <p className="text-xs text-gray-500">{selectedClassForAssignment?.name}</p>
+                    </div>
+                    <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+                </div>
+
+                <div className="p-6 space-y-4 overflow-y-auto">
+                    {/* Title */}
+                    <div>
+                        <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Assignment Title</label>
+                        <input 
+                            type="text" 
+                            className="w-full border border-gray-200 rounded-lg p-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none"
+                            placeholder="e.g. Lab Report 3: Arrays"
+                            value={assignmentData.title}
+                            onChange={e => setAssignmentData({...assignmentData, title: e.target.value})}
+                        />
+                    </div>
+
+                    {/* Deadline & Target */}
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Deadline</label>
+                            <input 
+                                type="datetime-local" 
+                                className="w-full border border-gray-200 rounded-lg p-2 text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                                value={assignmentData.deadline}
+                                onChange={e => setAssignmentData({...assignmentData, deadline: e.target.value})}
+                            />
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Assign To</label>
+                            <select 
+                                className="w-full border border-gray-200 rounded-lg p-2 text-sm text-gray-600 focus:ring-2 focus:ring-blue-500 outline-none"
+                                value={assignmentData.target}
+                                onChange={e => setAssignmentData({...assignmentData, target: e.target.value})}
+                            >
+                                <option value="all">All Students</option>
+                                <option value="selected">Selected Students</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    {/* Description */}
+                    <div>
+                         <label className="block text-xs font-bold text-gray-600 uppercase mb-1">Description</label>
+                         <textarea 
+                            className="w-full border border-gray-200 rounded-lg p-2 text-sm h-24 resize-none focus:ring-2 focus:ring-blue-500 outline-none"
+                            placeholder="Instructions for students..."
+                            value={assignmentData.description}
+                            onChange={e => setAssignmentData({...assignmentData, description: e.target.value})}
+                         />
+                    </div>
+
+                    {/* File Upload Dummy */}
+                    <div className="border-2 border-dashed border-gray-200 rounded-lg p-4 flex flex-col items-center justify-center text-gray-400 hover:bg-gray-50 transition-colors cursor-pointer">
+                        <Upload size={24} className="mb-2" />
+                        <span className="text-xs">Click to upload resource file</span>
+                    </div>
+
+                    {/* Drive Integration Section */}
+                    <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-white flex items-center justify-center shadow-sm">
+                                    <img src="https://upload.wikimedia.org/wikipedia/commons/1/12/Google_Drive_icon_%282020%29.svg" alt="Drive" className="w-5 h-5"/>
+                                </div>
+                                <div>
+                                    <p className="text-sm font-bold text-gray-800">Submission Folder</p>
+                                    <p className="text-xs text-gray-500">Auto-create Google Drive folder</p>
+                                </div>
+                            </div>
+                            
+                            {!generatedLink ? (
+                                <button 
+                                    onClick={handleGenerateDriveLink}
+                                    disabled={driveLinkLoading}
+                                    className="text-xs bg-blue-600 text-white px-3 py-1.5 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 flex items-center gap-1"
+                                >
+                                    {driveLinkLoading ? <Loader2 className="animate-spin" size={12}/> : <LinkIcon size={12}/>}
+                                    Generate Link
+                                </button>
+                            ) : (
+                                <span className="text-xs font-bold text-emerald-600 flex items-center gap-1"><CheckCircle size={12}/> Created</span>
+                            )}
+                        </div>
+
+                        {generatedLink && (
+                            <div className="mt-3 bg-white p-2 rounded border border-blue-100 flex items-center gap-2 overflow-hidden">
+                                <LinkIcon size={14} className="text-gray-400 flex-shrink-0" />
+                                <a href={generatedLink} target="_blank" className="text-xs text-blue-600 truncate underline">{generatedLink}</a>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="p-5 border-t border-gray-100 flex gap-3 justify-end bg-gray-50">
+                    <Button variant="ghost" onClick={() => setShowModal(false)}>Cancel</Button>
+                    <Button onClick={() => setShowModal(false)}>Assign Task</Button>
+                </div>
+            </div>
+        </div>
+      )}
+
     </div>
   );
 }
