@@ -10,7 +10,7 @@ import { Button, Card, InputGroup } from '@/components/ui/BaseComponents';
 import { useGoogle } from '@/context/GoogleContext';
 
 // --- Types ---
-
+    
 interface ExperimentScore {
   expId: number;
   objectiveScore: number;
