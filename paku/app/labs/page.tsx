@@ -59,7 +59,7 @@ const getPerformanceData = (filename: string) => {
   const lowerName = filename.toLowerCase();
   const key = Object.keys(STATIC_DATA).find(k => lowerName.includes(k));
   if (key) return STATIC_DATA[key];
-  return Array.from({ length: 24 }, () => Math.random() > 0.2 ? "Y" : "N");
+  return Array(24).fill("N");
 };
 
 export default function LabManualGrader() {
@@ -224,7 +224,7 @@ export default function LabManualGrader() {
         setCurrentStatus(`Evaluating Experiment ${exp} of ${file.name}...`);
         
         // Simulating OCR/Process time
-        await new Promise(r => setTimeout(r, 600)); 
+        await new Promise(r => setTimeout(r, 3600));
 
         // Indices
         const objIndex = (exp - 1) * 2;
